@@ -95,7 +95,7 @@ RUN git clone https://github.com/Acly/comfyui-inpaint-nodes.git custom_nodes/com
 # Stage 3: Final image
 FROM base as final
 
-# Copy models from stage 2 to the final image
+# Copy models from downloader stage to final image
 COPY --from=downloader /comfyui/models /comfyui/models
 
 # Start the container
