@@ -1,14 +1,12 @@
 # Stage 1: Base image with common dependencies
 FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 as base
 
-# Prevents prompts from packages asking for user input during installation
+# Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
-# Prefer binary wheels over source distributions for faster pip installations
 ENV PIP_PREFER_BINARY=1
-# Ensures output from python is printed immediately to the terminal without buffering
 ENV PYTHONUNBUFFERED=1 
 
-# Install Python, git and other necessary tools
+# Install Python, git, and other necessary tools
 RUN apt-get update && apt-get install -y \
     python3.10 \
     python3-pip \
@@ -31,26 +29,26 @@ RUN pip3 install --upgrade --no-cache-dir torch torchvision torchaudio --index-u
 # Install runpod
 RUN pip3 install runpod requests
 
-# Support for the network volume
+# Add configuration and handler files
 ADD src/extra_model_paths.yaml ./
+ADD src/start.sh ./start.sh
+ADD src/rp_handler.py ./rp_handler.py
+ADD test_input.json ./test_input.json
+RUN chmod +x ./start.sh
 
-# Go back to the root
-WORKDIR /
+# Add custom nodes (inpaint nodes)
+RUN git clone https://github.com/Acly/comfyui-inpaint-nodes.git custom_nodes/comfyui-inpaint-nodes
 
-# Add the start and the handler
-ADD src/start.sh src/rp_handler.py test_input.json ./
-RUN chmod +x /start.sh
-
-# Stage 2: Download models
+# Stage 2: Downloader stage for models
 FROM base as downloader
 
 ARG HUGGINGFACE_ACCESS_TOKEN
-ARG MODEL_TYPE
+ARG MODEL_TYPE=sdxl  # Default model type is set to sdxl
 
 # Change working directory to ComfyUI
 WORKDIR /comfyui
 
-# Download checkpoints/vae/LoRA to include in image based on model type
+# Download models based on MODEL_TYPE
 RUN if [ "$MODEL_TYPE" = "sdxl" ]; then \
       wget -O models/checkpoints/sd_xl_base_1.0.safetensors https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors && \
       wget -O models/vae/sdxl_vae.safetensors https://huggingface.co/stabilityai/sdxl-vae/resolve/main/sdxl_vae.safetensors && \
@@ -69,11 +67,16 @@ RUN if [ "$MODEL_TYPE" = "sdxl" ]; then \
       wget --header="Authorization: Bearer ${HUGGINGFACE_ACCESS_TOKEN}" -O models/vae/ae.safetensors https://huggingface.co/black-forest-labs/FLUX.1-dev/resolve/main/ae.safetensors; \
     fi
 
+# Ensure models/inpaint directory exists, then download inpaint models
+RUN mkdir -p models/inpaint && \
+    wget -O models/inpaint/fooocus_inpaint_head.pth https://huggingface.co/lllyasviel/fooocus_inpaint/resolve/main/fooocus_inpaint_head.pth && \
+    wget -O models/inpaint/inpaint_v26.fooocus.patch https://huggingface.co/lllyasviel/fooocus_inpaint/resolve/main/inpaint_v26.fooocus.patch
+
 # Stage 3: Final image
 FROM base as final
 
-# Copy models from stage 2 to the final image
+# Copy models from downloader stage to final image
 COPY --from=downloader /comfyui/models /comfyui/models
 
 # Start the container
-CMD /start.sh
+CMD ./start.sh
