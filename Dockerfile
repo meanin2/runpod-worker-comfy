@@ -47,6 +47,12 @@ FROM base AS downloader
 ARG HUGGINGFACE_ACCESS_TOKEN
 ARG MODEL_TYPE
 
+# Ensure all model subdirectories exist in the downloader stage
+RUN mkdir -p /comfyui/models/checkpoints \
+             /comfyui/models/vae \
+             /comfyui/models/inpaint \
+             /comfyui/custom_nodes
+
 # Change working directory to ComfyUI
 WORKDIR /comfyui
 
@@ -59,9 +65,8 @@ RUN if [ "$MODEL_TYPE" = "sdxl" ]; then \
       wget --header="Authorization: Bearer ${HUGGINGFACE_ACCESS_TOKEN}" -O models/checkpoints/sd3_medium_incl_clips_t5xxlfp8.safetensors https://huggingface.co/stabilityai/stable-diffusion-3-medium/resolve/main/sd3_medium_incl_clips_t5xxlfp8.safetensors; \
     fi
 
-# Ensure models/inpaint directory exists, then download custom inpainting models
-RUN mkdir -p models/inpaint && \
-    wget -O models/inpaint/fooocus_inpaint_head.pth https://huggingface.co/lllyasviel/fooocus_inpaint/resolve/main/fooocus_inpaint_head.pth && \
+# Download custom inpainting models
+RUN wget -O models/inpaint/fooocus_inpaint_head.pth https://huggingface.co/lllyasviel/fooocus_inpaint/resolve/main/fooocus_inpaint_head.pth && \
     wget -O models/inpaint/inpaint_v26.fooocus.patch https://huggingface.co/lllyasviel/fooocus_inpaint/resolve/main/inpaint_v26.fooocus.patch
 
 # Add custom nodes (inpainting nodes)
@@ -72,6 +77,7 @@ FROM base AS final
 
 # Copy models from downloader stage to final image
 COPY --from=downloader /comfyui/models /comfyui/models
+COPY --from=downloader /comfyui/custom_nodes /comfyui/custom_nodes
 
 # Start the container
 CMD /start.sh
